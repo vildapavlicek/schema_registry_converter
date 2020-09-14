@@ -164,7 +164,7 @@ impl<'a> AvroDecoder<'a> {
     ///     }
     /// }
     /// ```
-    pub async fn decode(&mut self, bytes: Option<&[u8]>) -> Result<DecodeResult, SRCError> {
+    pub async fn decode(&mut self, bytes: Option<&[u8]>) -> Result<DecodeResult<'_>, SRCError> {
         match get_bytes_result(bytes) {
             BytesResult::Null => Ok(DecodeResult {
                 name: None,
@@ -179,12 +179,12 @@ impl<'a> AvroDecoder<'a> {
     }
     /// The actual deserialization trying to get the id from the bytes to retrieve the schema, and
     /// using a reader transforms the bytes to a value.
-    async fn deserialize(&mut self, id: u32, bytes: &[u8]) -> Result<DecodeResult, SRCError> {
+    async fn deserialize(&mut self, id: u32, bytes: &[u8]) -> Result<DecodeResult<'_>, SRCError> {
         let schema = self.get_schema(id).clone().await?;
         let mut reader = Cursor::new(bytes);
         match from_avro_datum(&schema.parsed, &mut reader, None) {
             Ok(v) => Ok(DecodeResult {
-                name: get_name(&schema.parsed),
+                name: get_name(schema.parsed.root()),
                 value: v,
             }),
             Err(e) => Err(SRCError::non_retryable_with_cause(

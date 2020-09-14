@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use avro_rs::schema::{Name, Schema};
+use avro_rs::schema::{Name, Schema, SchemaType as AvroSchemaType};
 use avro_rs::types::{Record, ToAvro, Value};
 use avro_rs::{to_avro_datum, to_value};
 use serde::ser::Serialize;
@@ -19,8 +19,8 @@ pub(crate) struct AvroSchema {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct DecodeResult {
-    pub name: Option<Name>,
+pub struct DecodeResult<'s> {
+    pub name: Option<Name<'s>>,
     pub value: Value,
 }
 
@@ -95,7 +95,7 @@ pub(crate) fn replace_reference(parent: value::Value, child: value::Value) -> va
     }
 }
 
-fn to_bytes<T: ToAvro>(avro_schema: &AvroSchema, record: T) -> Result<Vec<u8>, SRCError> {
+fn to_bytes<T: Into<Value>>(avro_schema: &AvroSchema, record: T) -> Result<Vec<u8>, SRCError> {
     match to_avro_datum(&avro_schema.parsed, record) {
         Ok(v) => Ok(get_payload(avro_schema.id, v)),
         Err(e) => Err(SRCError::non_retryable_with_cause(
@@ -135,7 +135,7 @@ pub(crate) fn item_to_bytes(
 ) -> Result<Vec<u8>, SRCError> {
     match to_value(item)
         .map_err(|e| SRCError::non_retryable_with_cause(e, "Could not transform to avro_rs value"))
-        .map(|r| r.resolve(&avro_schema.parsed))
+        .map(|r| r.resolve(avro_schema.parsed.root()))
     {
         Ok(Ok(v)) => to_bytes(avro_schema, v),
         Ok(Err(e)) => Err(SRCError::non_retryable_with_cause(e, "Failed to resolve")),
@@ -143,19 +143,19 @@ pub(crate) fn item_to_bytes(
     }
 }
 
-pub(crate) fn get_name(schema: &Schema) -> Option<Name> {
+pub(crate) fn get_name(schema: AvroSchemaType) -> Option<Name> {
     match schema {
-        Schema::Record { name: n, .. } => Some(n.clone()),
+        AvroSchemaType::Record(record_schema) => Some(record_schema.name()),
         _ => None,
     }
 }
 
 pub fn get_supplied_schema(schema: &Schema) -> Box<SuppliedSchema> {
-    let name = match get_name(schema) {
+    let name = match get_name(schema.root()) {
         None => None,
-        Some(n) => match n.namespace {
-            None => Some(n.name),
-            Some(ns) => Some(format!("{}.{}", ns, n.name)),
+        Some(n) => match n.namespace() {
+            None => Some(n.name().to_string()),
+            Some(ns) => Some(format!("{}.{}", ns, n.name())),
         },
     };
     Box::from(SuppliedSchema {
